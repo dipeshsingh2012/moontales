@@ -1,9 +1,11 @@
-// VoiceService - Real implementation using audio recording + OpenAI Whisper
+// VoiceService - Real implementation using audio recording + MoonTales Gemini Transcription
+import { transcribeAudioCues, CuesExtractionResult } from '../api/MoontalesApiService';
 
 export interface VoiceServiceCallbacks {
   onRecordingStart?: () => void;
   onRecordingStop?: (audioUri: string) => void;
   onTranscriptionComplete?: (text: string) => void;
+  onCuesExtracted?: (result: CuesExtractionResult) => void;
   onError?: (error: string) => void;
 }
 
@@ -110,44 +112,55 @@ export class VoiceService {
   }
 
   async transcribeAudio(audioUri: string): Promise<string> {
-    if (!this.whisperApiKey) {
-      throw new Error('No API key set. Add your OpenAI key in Settings to use voice input.');
-    }
-
     try {
-      const formData = new FormData();
-      formData.append('file', {
-        uri: audioUri,
-        type: 'audio/m4a',
-        name: 'recording.m4a',
-      } as any);
-      formData.append('model', 'whisper-1');
-      formData.append('language', 'en');
+      // 1. Primary: Use MoonTales backend (Gemini multimodal transcription + cue extraction)
+      const cuesResult = await transcribeAudioCues(audioUri);
+      const text = cuesResult.prompt || cuesResult.transcription;
+      this.callbacks.onCuesExtracted?.(cuesResult);
+      this.callbacks.onTranscriptionComplete?.(text);
+      return text;
+    } catch (backendError) {
+      console.warn('[VoiceService] Backend transcription failed, checking whisper fallback:', backendError);
 
-      const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${this.whisperApiKey}` },
-        body: formData,
-      });
+      if (this.whisperApiKey) {
+        try {
+          const formData = new FormData();
+          formData.append('file', {
+            uri: audioUri,
+            type: 'audio/m4a',
+            name: 'recording.m4a',
+          } as any);
+          formData.append('model', 'whisper-1');
+          formData.append('language', 'en');
 
-      if (!response.ok) {
-        const errorBody = await response.text();
-        throw new Error(`Whisper error (${response.status}): ${errorBody}`);
+          const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${this.whisperApiKey}` },
+            body: formData,
+          });
+
+          if (!response.ok) {
+            const errorBody = await response.text();
+            throw new Error(`Whisper error (${response.status}): ${errorBody}`);
+          }
+
+          const data = await response.json();
+          const transcription: string = data.text?.trim() || '';
+
+          if (!transcription) {
+            throw new Error('No speech detected. Please try again and speak clearly.');
+          }
+
+          this.callbacks.onTranscriptionComplete?.(transcription);
+          return transcription;
+        } catch (whisperError) {
+          console.warn('[VoiceService] Whisper fallback also failed:', whisperError);
+        }
       }
 
-      const data = await response.json();
-      const transcription: string = data.text?.trim() || '';
-
-      if (!transcription) {
-        throw new Error('No speech detected. Please try again and speak clearly.');
-      }
-
-      this.callbacks.onTranscriptionComplete?.(transcription);
-      return transcription;
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Transcription failed';
+      const message = backendError instanceof Error ? backendError.message : 'Transcription failed';
       this.callbacks.onError?.(message);
-      throw error;
+      throw backendError;
     }
   }
 

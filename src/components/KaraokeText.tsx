@@ -69,7 +69,7 @@ export const KaraokeText: React.FC<KaraokeTextProps> = ({
           const isCurrent = currentTimeMs >= w.startMs && currentTimeMs < w.endMs;
           const isSpoken = currentTimeMs >= w.endMs && currentTimeMs > 0;
 
-          let wordStyle = styles.upcomingText;
+          let wordStyle: any = styles.upcomingText;
           if (isCurrent) {
             wordStyle = styles.currentText;
           } else if (isSpoken) {

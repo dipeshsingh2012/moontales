@@ -133,6 +133,8 @@ function PageContent({
 }) {
   const imageUri = page.local_image_path || page.image_url || page.imageUrl;
   const { bg, icons } = getTheme(page.image_prompt ?? '');
+  const isGenerating = page.ready === false;
+
   return (
     <View style={styles.pagePaper}>
       {imageUri ? (
@@ -140,6 +142,11 @@ function PageContent({
       ) : (
         <View style={[styles.illus, { backgroundColor: bg }]}>
           <Text style={styles.illusIcons}>{icons}</Text>
+          {isGenerating && (
+            <View style={styles.preparingBadge}>
+              <Text style={styles.preparingBadgeText}>✨ Painting illustration... 🎨</Text>
+            </View>
+          )}
         </View>
       )}
       <View style={styles.textArea}>
@@ -296,16 +303,20 @@ function AudioBar({
   };
 
   const audioAvailable = !!audioPath;
+  const isGenerating = page.ready === false && !audioAvailable;
 
   return (
     <TouchableOpacity
-      style={[styles.audioBtn, { backgroundColor: audioAvailable ? colors.primary : colors.card }]}
+      style={[
+        styles.audioBtn,
+        { backgroundColor: audioAvailable ? colors.primary : isGenerating ? '#8b5cf6' : colors.card },
+      ]}
       onPress={toggle}
       disabled={!audioAvailable || loading}
       activeOpacity={0.8}
     >
       <Text style={styles.audioBtnText}>
-        {!audioAvailable ? '🔇' : loading ? '⏳' : playing ? '⏸' : '▶️'}
+        {isGenerating ? '⏳' : !audioAvailable ? '🔇' : loading ? '⏳' : playing ? '⏸' : '▶️'}
       </Text>
     </TouchableOpacity>
   );
@@ -372,14 +383,36 @@ export function StoryBook({ story, onClose, onNewStory, onLastPage }: StoryBookP
     });
   };
 
+  const [pageFinished, setPageFinished] = useState(false);
+
+  useEffect(() => {
+    setPageFinished(false);
+  }, [currentPage]);
+
   const handlePageComplete = useCallback(() => {
+    setPageFinished(true);
     if (autoAdvance && currentPage < totalPages - 1) {
-      // Add a small delay before advancing
+      const nextIdx = currentPage + 1;
+      const nextPage = pages[nextIdx];
+      if (nextPage && nextPage.ready === false) {
+        return;
+      }
       setTimeout(() => {
-        goToPage(currentPage + 1);
-      }, 500);
+        goToPage(nextIdx);
+      }, 700);
     }
-  }, [autoAdvance, currentPage, totalPages]);
+  }, [autoAdvance, currentPage, totalPages, pages]);
+
+  // If current page audio finished, and next page just became ready, advance!
+  useEffect(() => {
+    if (pageFinished && autoAdvance && currentPage < totalPages - 1) {
+      const nextIdx = currentPage + 1;
+      const nextPage = pages[nextIdx];
+      if (nextPage && nextPage.ready !== false) {
+        goToPage(nextIdx);
+      }
+    }
+  }, [pages, pageFinished, autoAdvance, currentPage, totalPages]);
 
   const panResponder = useRef(PanResponder.create({
     onStartShouldSetPanResponder: () => !isOnLastPageRef.current,
@@ -555,6 +588,19 @@ const styles = StyleSheet.create({
   pagePaper: { flex: 1, backgroundColor: '#fdf8ef' },
   illus:     { width: '100%', height: 210, justifyContent: 'center', alignItems: 'center' },
   illusIcons:{ fontSize: 60 },
+  preparingBadge: {
+    position: 'absolute',
+    bottom: 12,
+    backgroundColor: 'rgba(0, 0, 0, 0.65)',
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 16,
+  },
+  preparingBadgeText: {
+    color: '#fef08a',
+    fontSize: 12,
+    fontWeight: '800',
+  },
   textArea:  { flex: 1, paddingHorizontal: 20, paddingTop: 16 },
   pageText:  { fontSize: 18, lineHeight: 30, color: '#2c1810', textAlign: 'justify' },
   karaokeHighlight: {

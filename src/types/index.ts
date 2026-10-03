@@ -70,5 +70,6 @@ export interface StoryGenerationOptions {
   length?: 'short' | 'medium' | 'long';
   duration_minutes?: number;
   characters?: string[];
+  cues?: string[];
 }
 

@@ -119,7 +119,7 @@ export const ReaderScreen: React.FC<ReaderScreenProps> = ({ story, onBack }) => 
             </View>
           )}
           <Image
-            source={{ uri: currentPage.local_image_path || currentPage.image_url }}
+            source={{ uri: currentPage.local_image_path || currentPage.image_url || undefined }}
             style={styles.illustration}
             resizeMode="cover"
             onLoadStart={() => setImageLoading(true)}

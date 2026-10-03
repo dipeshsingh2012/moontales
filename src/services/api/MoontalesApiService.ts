@@ -111,6 +111,7 @@ export async function createStory(
   const userCues: string[] = [];
   if (options.theme) userCues.push(options.theme);
   if (options.characters) userCues.push(...options.characters);
+  if (options.cues) userCues.push(...options.cues);
 
   const durationMinutes = options.duration_minutes ?? LENGTH_TO_MINUTES[options.length ?? 'medium'] ?? 5;
 
@@ -207,5 +208,52 @@ export async function pollUntilComplete(
     await new Promise((r) => setTimeout(r, intervalMs));
   }
   throw new Error('Story generation timed out.');
+}
+
+export interface CuesExtractionResult {
+  transcription: string;
+  prompt: string;
+  theme: string;
+  characters: string[];
+  cues: string[];
+}
+
+/** POST /api/cues/extract — extract bedtime cues from text prompt */
+export async function extractTextCues(text: string): Promise<CuesExtractionResult> {
+  return apiRequest('/api/cues/extract', {
+    method: 'POST',
+    body: JSON.stringify({ text }),
+  });
+}
+
+/** POST /api/cues/transcribe — transcribe audio and extract story cues with Gemini */
+export async function transcribeAudioCues(audioUri: string): Promise<CuesExtractionResult> {
+  const formData = new FormData();
+  formData.append('file', {
+    uri: audioUri,
+    type: 'audio/m4a',
+    name: 'voice_cue.m4a',
+  } as any);
+
+  const token = _getToken ? await _getToken() : null;
+  const headers: Record<string, string> = {
+    'bypass-tunnel-reminder': '1',
+  };
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  const response = await fetch(`${BASE_URL}/api/cues/transcribe`, {
+    method: 'POST',
+    headers,
+    body: formData,
+  });
+
+  if (!response.ok) {
+    const errorBody = await response.text();
+    throw new Error(`Audio transcription failed (${response.status}): ${errorBody}`);
+  }
+
+  return response.json();
 }
 

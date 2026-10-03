@@ -6,6 +6,7 @@ import {
 import { useTheme } from '../context/ThemeContext';
 import { useStoryContext } from '../context/StoryContext';
 import { VoiceService } from '../services';
+import { StoryLoader } from '../components';
 
 const THEMES = [
   { label: 'Fantasy',     emoji: '🧙', color: '#7b2fbe', value: 'fantasy' },
@@ -36,6 +37,9 @@ export default function CreateScreen({ navigation, route }: any) {
   const [selectedTheme, setSelectedTheme] = useState(presetTheme);
   const [length, setLength]           = useState<'short'|'medium'|'long'>('medium');
   const [characters, setCharacters]   = useState(userPreferences.childName || '');
+  const [cues, setCues]               = useState<string[]>([]);
+  const [newCueText, setNewCueText]   = useState('');
+  const [showAddCue, setShowAddCue]   = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
 
@@ -60,10 +64,20 @@ export default function CreateScreen({ navigation, route }: any) {
   const getVoiceService = () => {
     if (!voiceRef.current) {
       voiceRef.current = new VoiceService({
-        onRecordingStart:       () => setIsRecording(true),
-        onRecordingStop:        () => { setIsRecording(false); setIsTranscribing(true); },
-        onTranscriptionComplete:(text) => { setPrompt(text); setIsTranscribing(false); },
-        onError:                (err) => { setIsRecording(false); setIsTranscribing(false); Alert.alert('Voice Error', err); },
+        onRecordingStart:        () => setIsRecording(true),
+        onRecordingStop:         () => { setIsRecording(false); setIsTranscribing(true); },
+        onTranscriptionComplete: (text) => { setPrompt(text); setIsTranscribing(false); },
+        onCuesExtracted:         (res) => {
+          if (res.prompt) setPrompt(res.prompt);
+          if (res.theme) setSelectedTheme(res.theme);
+          if (res.characters && res.characters.length > 0) {
+            setCharacters(res.characters.join(', '));
+          }
+          if (res.cues && res.cues.length > 0) {
+            setCues(prev => Array.from(new Set([...prev, ...res.cues])));
+          }
+        },
+        onError:                 (err) => { setIsRecording(false); setIsTranscribing(false); Alert.alert('Voice Error', err); },
       }, '');
     }
     return voiceRef.current;
@@ -96,19 +110,17 @@ export default function CreateScreen({ navigation, route }: any) {
       characters: characters.trim()
         ? characters.split(',').map(c => c.trim()).filter(Boolean)
         : undefined,
+      cues: cues.length > 0 ? cues : undefined,
     });
     navigation.navigate('StoryView');
   };
 
   if (isLoading) {
     return (
-      <View style={[styles.loadingContainer, { backgroundColor: colors.background }]}>
-        <Text style={styles.loadingMoon}>🌙</Text>
-        <ActivityIndicator size="large" color={colors.primary} style={{ marginTop: 16 }} />
-        <Text style={[styles.loadingText, { color: colors.textSecondary }]}>
-          {generationStatus || 'Writing your story…'}
-        </Text>
-      </View>
+      <StoryLoader
+        status={generationStatus || 'Writing your story…'}
+        themeTitle={selectedTheme ? `${selectedTheme} Story` : undefined}
+      />
     );
   }
 
@@ -191,6 +203,66 @@ export default function CreateScreen({ navigation, route }: any) {
         onChangeText={setCharacters}
       />
 
+      {/* Story & Visual Cues */}
+      <View style={styles.cuesHeaderRow}>
+        <Text style={[styles.label, { color: colors.textSecondary }]}>Visual & Story Cues</Text>
+        <TouchableOpacity onPress={() => setShowAddCue(!showAddCue)}>
+          <Text style={[styles.addCueBtnText, { color: colors.primary }]}>
+            {showAddCue ? 'Cancel' : '+ Add Cue'}
+          </Text>
+        </TouchableOpacity>
+      </View>
+
+      {showAddCue && (
+        <View style={styles.addCueRow}>
+          <TextInput
+            style={[styles.cueInput, { backgroundColor: colors.card, color: colors.text }]}
+            placeholder="e.g. glowing stars, fluffy rabbit..."
+            placeholderTextColor={colors.placeholder}
+            value={newCueText}
+            onChangeText={setNewCueText}
+            onSubmitEditing={() => {
+              if (newCueText.trim()) {
+                setCues(prev => [...prev, newCueText.trim()]);
+                setNewCueText('');
+              }
+            }}
+          />
+          <TouchableOpacity
+            style={[styles.addCueConfirmBtn, { backgroundColor: colors.primary }]}
+            onPress={() => {
+              if (newCueText.trim()) {
+                setCues(prev => [...prev, newCueText.trim()]);
+                setNewCueText('');
+              }
+            }}
+          >
+            <Text style={{ color: '#fff', fontWeight: '800' }}>Add</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {cues.length > 0 ? (
+        <View style={styles.cueChipsWrap}>
+          {cues.map((cue, index) => (
+            <View key={index} style={[styles.cueChip, { backgroundColor: 'rgba(139, 92, 246, 0.22)', borderColor: 'rgba(139, 92, 246, 0.45)' }]}>
+              <Text style={styles.cueChipText}>✨ {cue}</Text>
+              <TouchableOpacity
+                onPress={() => setCues(prev => prev.filter((_, i) => i !== index))}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                style={styles.cueChipRemoveBtn}
+              >
+                <Text style={styles.cueChipRemove}>✕</Text>
+              </TouchableOpacity>
+            </View>
+          ))}
+        </View>
+      ) : (
+        <Text style={[styles.cuesHint, { color: colors.textSecondary }]}>
+          💡 Speak with mic or type cues to steer magical items, scenery, and characters!
+        </Text>
+      )}
+
       {/* Generate */}
       <TouchableOpacity
         style={[styles.generateBtn, { backgroundColor: colors.primary }]}
@@ -239,4 +311,40 @@ const styles = StyleSheet.create({
     elevation: 6, shadowColor: '#a855f7', shadowOffset: {width:0,height:4}, shadowOpacity:0.4, shadowRadius:8,
   },
   generateLabel: { fontSize: 20, fontWeight: '900', color: '#fff' },
+
+  cuesHeaderRow: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    marginTop: 16, marginBottom: 8,
+  },
+  addCueBtnText: {
+    fontSize: 13, fontWeight: '800',
+  },
+  addCueRow: {
+    flexDirection: 'row', gap: 8, marginBottom: 12,
+  },
+  cueInput: {
+    flex: 1, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10, fontSize: 14,
+  },
+  addCueConfirmBtn: {
+    paddingHorizontal: 16, borderRadius: 12, justifyContent: 'center', alignItems: 'center',
+  },
+  cueChipsWrap: {
+    flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 4,
+  },
+  cueChip: {
+    flexDirection: 'row', alignItems: 'center', borderWidth: 1,
+    paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16,
+  },
+  cueChipText: {
+    color: '#e9d5ff', fontSize: 13, fontWeight: '700', marginRight: 6,
+  },
+  cueChipRemoveBtn: {
+    padding: 2,
+  },
+  cueChipRemove: {
+    color: '#c084fc', fontSize: 12, fontWeight: '900',
+  },
+  cuesHint: {
+    fontSize: 13, fontStyle: 'italic', marginTop: 4, lineHeight: 18,
+  },
 });
